@@ -1,0 +1,336 @@
+JDBC Best Practices (self) Reference
+Janis Froehlig
+for MCTC Java 2 
+7/1/2014
+
+The essential "How to":
+http://docs.oracle.com/javase/tutorial/jdbc/basics/index.html
+
+***CONNECT***********************************************************
+
+There are lots of instruction examples available that outline the essential steps of connecting. They are tailored to the product that eases/defines the connection, but the basic programmatic steps are still outlined: http://www.easysoft.com/products/data_access/odbc_jdbc_gateway/manual/configuration.html
+http://infocenter.pentaho.com/help/index.jsp?topic=%2Fpdi_admin_guide%2Ftask_create_new_connection_definition.html
+http://www.eclipse.org/eclipselink/documentation/2.4/jpa/extensions/p_jdbc_nativesql.htm
+
+Don't forget:
+import java.sql.* 
+import java.math.* 
+
+JDBC (Java DataBase Connectivity) Driver required.  It must be registered with the system on which it's running, though registration happens automatically when dynamically loaded into memory if that's possible to do. (Sequence matters.)
+
+Registration Code:
+----------------------------------
+try {
+   Class.forName("oracle.jdbc.driver.OracleDriver");
+}
+catch(ClassNotFoundException ex) {
+   System.out.println("Error: unable to load driver class!");
+   System.exit(1);
+}
+----------------------------------.
+For non-compliant JVMs (Java Virtual Machines) Code:
+----------------------------------
+try {
+   Class.forName("oracle.jdbc.driver.OracleDriver").newInstance();
+}
+catch(ClassNotFoundException ex) {
+   System.out.println("Error: unable to load driver class!");
+   System.exit(1);
+catch(IllegalAccessException ex) {
+   System.out.println("Error: access problem while loading!");
+   System.exit(2);
+catch(InstantiationException ex) {
+   System.out.println("Error: unable to instantiate driver!");
+   System.exit(3);
+}
+----------------------------------.
+For non-JDK compliant drivers, like Microsoft's:
+----------------------------------
+try {
+   Driver myDriver = new oracle.jdbc.driver.OracleDriver();
+   DriverManager.registerDriver( myDriver );
+}
+catch(ClassNotFoundException ex) {
+   System.out.println("Error: unable to load driver class!");
+   System.exit(1);
+}
+----------------------------------.
+http://www.tutorialspoint.com/jdbc/jdbc-db-connections.htm
+
+
+Driver Types:
+Cited source links (in order of brevity)
+http://javarevisited.blogspot.com/2012/05/different-types-of-jdbc-drivers-in-java.html
+http://www.tutorialspoint.com/jdbc/jdbc-driver-types.htm
+http://en.wikipedia.org/wiki/JDBC_driver
+
+Type 1: JDBC-ODBC Bridge
+Conversion - uses JDBC driver to connect; translates ODBC function-calls into JDBC method-calls
+Allows Java-based programs to access data sources on platforms lacking a native JDBC driver (rare).
+ODBC (Open DataBase Connectivity) was developed by Microsoft.  Is the basis for JDBC.  Spawned embedded SQL. Accesses drivers on each machine and requires system configuration or a tool like: http://www.easysoft.com/products/data_access/odbc_jdbc_gateway/manual/configuration.html
+Almost any database that has an ODBC driver can be accessed. (A last resort; though you know she'd do anything for you, and no matter how wonderfully she set the family on its path, don't ask Grandma for help with your camping gear, she'll talk your ear off as she shuffles back & forth forgetting what she just remembered she forgot, but she will tell you honestly if your jokes are funny or not.)  Easy to experiment with, but slow, upstream, and difficult to implement/support given client dependence and layers of translation/traffic.  Sun Microsystems included one as a temporary tool, not for production. (Like the putty plugging the leak in the drain pipe from your bathroom sink, temporary is as temporary does.) JDBC-ODBC bridges are (2008, Wikipedia) released that still outperform the JVM.
+http://en.wikipedia.org/wiki/Open_Database_Connectivity
+
+Type 2: Native-API Driver
+Conversion  - converts JDBC API method calls into native C/C++ library/API recognizable (and vice versa)
+Uses the libraries on client/each machine; requires installation. Platform dependent.  No Applets. Like ODBC, client-dependent. Also version dependent, which has been and still is lucrative for database vendors.
+http://www.rapidprogramming.com/questions-answers/What-is-Native-API-Driver--356
+
+Type 3: All-Java Network-Protocol Driver(MiddleWare Driver)
+Conversion - none, at least not on the Java side, just a fit into the network protocol
+3 tiers: JDBC client (via standard network sockets), middleware (application server), DBMS (database server).  The key to this chain is "standard."  The field of technology networking, from RJ-11 to email has spearheaded standard-creation. Out of necessity, yes, but world-class engineers were and are being educated and paid to figure out how to fit things together (including users and their antiquated email).  This bit of history marks a change of paradigm in databases. The focus in the story is no longer access (to data), but interoperability.  (To indulge myself in speculation, it might have been less complex if this had been figured out before we had to get all the way down to zeros, ones and hardware ports to decide to prioritize technology congeniality.)
+
+Client Code:
+----------------------------------
+import java.net.*;
+import java.io.*;
+
+public class GreetingClient
+{
+   public static void main(String [] args)
+   {
+      String serverName = args[0];
+      int port = Integer.parseInt(args[1]);
+      try
+      {
+         System.out.println("Connecting to " + serverName
+                             + " on port " + port);
+         Socket client = new Socket(serverName, port);
+         System.out.println("Just connected to "
+                      + client.getRemoteSocketAddress());
+         OutputStream outToServer = client.getOutputStream();
+         DataOutputStream out =
+                       new DataOutputStream(outToServer);
+
+         out.writeUTF("Connection from "
+                      + client.getLocalSocketAddress());
+         InputStream inFromServer = client.getInputStream();
+         DataInputStream in =
+                        new DataInputStream(inFromServer);
+         System.out.println("Server says " + in.readUTF());
+         client.close();
+      }catch(IOException e)
+      {
+         e.printStackTrace();
+      }
+   }
+}
+----------------------------------.
+
+Server Code:
+----------------------------------
+import java.net.*;
+import java.io.*;
+
+public class GreetingServer extends Thread
+{
+   private ServerSocket serverSocket;
+   
+   public GreetingServer(int port) throws IOException
+   {
+      serverSocket = new ServerSocket(port);
+      serverSocket.setSoTimeout(10000);
+   }
+
+   public void run()
+   {
+      while(true)
+      {
+         try
+         {
+            System.out.println("Waiting for client on port " +
+            serverSocket.getLocalPort() + "...");
+            Socket server = serverSocket.accept();
+            System.out.println("Just connected to "
+                  + server.getRemoteSocketAddress());
+            DataInputStream in =
+                  new DataInputStream(server.getInputStream());
+            System.out.println(in.readUTF());
+            DataOutputStream out =
+                 new DataOutputStream(server.getOutputStream());
+            out.writeUTF("Thank you for connecting to "
+              + server.getLocalSocketAddress() + "\nGoodbye!");
+            server.close();
+         }catch(SocketTimeoutException s)
+         {
+            System.out.println("Socket timed out!");
+            break;
+         }catch(IOException e)
+         {
+            e.printStackTrace();
+            break;
+         }
+      }
+   }
+   public static void main(String [] args)
+   {
+      int port = Integer.parseInt(args[0]);
+      try
+      {
+         Thread t = new GreetingServer(port);
+         t.start();
+      }catch(IOException e)
+      {
+         e.printStackTrace();
+      }
+   }
+}
+----------------------------------.
+
+Tidy.
+
+Repetition for emphasis:
+ http://www.tutorialspoint.com/java/java_networking.htm
+
+To create your own Type 3 driver:  http://www.javaworld.com/article/2074249/data-storage/create-your-own-type-3-jdbc-driver--part-1.html
+ 
+Type 4: Database-Protocol Driver(Pure Java Driver)
+Conversion - none, dealt with by the database, or database vendor-supplied
+The only unison more perfect than, say, the Emerson string quartet, playing the same note is a soloist.  We don't need standards if we only use one kind of database.  We're not down to one, yet, but De facto standards have been set by Oracle, Sybase, and IBM.    These companies also have the means and motivation to preserve their brands, and have simplified (taken on) the net protocols and their shifts.  Of course, the easier it is for developers to use, the more developers will use it.  What's easier than hiring out?  Who does it better than the guy who always does it?  Plus, it's theoretically the same code for every database or a given type, so the code is reused.
+
+Connect to IBM DB2:
+https://www.ibm.com/developerworks/community/blogs/IMSupport/entry/100_tech_tips_92_sample_java_program_to_test_connection_using_ibm_db2_jcc_universal_driver4?lang=en
+
+Connect to Oracle datasource:
+http://docs.oracle.com/cd/E11882_01/appdev.112/e12137/getconn.htm#TDPJD146
+Simplified:
+http://www.mkyong.com/jdbc/connect-to-oracle-db-via-jdbc-driver-java/
+
+Connect to Sybase with jConnect:
+http://infocenter.sybase.com/archive/index.jsp?topic=/com.sybase.infocenter.dc00170.1260/html/iqapg/iqapg917.htm
+
+Using JNDI, for example, to connect to Tomcat:
+http://www.javapractices.com/topic/TopicAction.do?Id=127
+
+**.
+
+***QUERY FORMAT***********************************************************************
+Online SQL formatter:
+http://www.dpriver.com/pp/sqlformat.htm
+
+On separating Java code from SQL code e.g. in a txt file or properties file (pros and cons in the links):
+ttp://stackoverflow.com/questions/1544335/java-storing-sql-statements-in-an-external-file
+http://programmers.stackexchange.com/questions/163817/externalising-sql-queries-in-java
+
+On handling null values in returns:
+http://stackoverflow.com/questions/5991360/handling-the-null-value-from-a-resultset-in-java
+http://stackoverflow.com/questions/271888/best-practice-for-handling-null-strings-from-database-in-java
+
+Oracle types vs. Java types:
+http://docs.oracle.com/cd/F49540_01/DOC/java.815/a64685/oraext3.htm
+
+Use the Exception Handling tools that are available.  Awareness is critical; check your database before you commit a change:
+----------------------------------
+IF NOT EXISTS CREATE TABLE "dbLivingRoom.Coffee"
+----------------------------------.
+Right click on it and surround it with a Try/catch/finally block.
+Note: the TutorialsPoint sample code isn't terribly robust, particularly in this regard.  It's supposed to be pedagogical, but all it does is give the wrong impression that it's complete.  This teaching method should be handled differently; toggle the view of the complete code, grey-out the not-so-understandable parts, or put a caveat at the top of every code sample.
+----------------------------------
+Connection conn = null; /////risky if the reassignment fails
+   Statement stmt = null;
+----------------------------------.
+----------------------------------
+  String sql = "CREATE TABLE REGISTRATION " +/////Just blow the old one away, or fail
+                   "(id INTEGER not NULL, " +
+                   " first VARCHAR(255), " + 
+                   " last VARCHAR(255), " + 
+                   " age INTEGER, " + 
+                   " PRIMARY KEY ( id ))"; 
+
+      stmt.executeUpdate(sql);
+      System.out.println("Created table in given database...");
+   }catch(SQLException se){
+      //Handle errors for JDBC
+      se.printStackTrace();
+   }catch(Exception e){
+      //Handle errors for Class.forName
+      e.printStackTrace();
+   }finally{
+      //finally block used to close resources
+      try{
+         if(stmt!=null)
+            conn.close();
+      }catch(SQLException se){
+      }// do nothing ///// Useless crap is a handicap
+      try{
+         if(conn!=null)
+            conn.close();
+      }catch(SQLException se){
+         se.printStackTrace();
+      }//end finally try
+   }//end try
+   System.out.println("Goodbye!");
+}//end main
+}//end JDBCExample
+----------------------------------.
+
+***SECURITY: accidental/deliberate****************************************************
+
+Disallow user input of escape characters, or anything else that might not work.  Computing at it's essence is simply organizing electricity to mean something and be useful.  Don't let anything meaningless (confusing) or useless in.  You may have to remind folks that the confinement they don't like is exactly the purpose of the tool.  Milk bubbling:  just because you can do it without spilling or getting behaviourally out-of-control doesn't mean the whole class can.  If you do it, so will they.  Most rules don't apply to any one person, but exemptions negate the rule.  If a user can do it, a hacker can.
+http://en.wikipedia.org/wiki/SQL_injection
+http://ha.ckers.org/sqlinjection/  (brief cheat sheet)
+https://www.owasp.org/index.php/SQL_Injection_Prevention_Cheat_Sheet
+
+Be sure to run through this list:
+http://docs.oracle.com/javase/8/docs/technotes/guides/jndi/spec/jndi/jndi.8.html
+
+And this:
+http://www.oracle.com/technetwork/java/seccodeguide-139067.html
+That's a long one.  Dense, too.  Security becomes a problem, however, when people don't take the time (make the effort) to care. Java developers have been through the pain of infiltration and wading through impossible-to-maintain/test/improve code.  They bothered to write it down, concisely (maybe too much so; the vocabulary is a bit steep). It's all there behind that link.  Conscience, conscientious, with knowledge. Unscrupulous, sloppy, ignorant.  
+**.
+***EXCEPTION HANDLING*******************************************************************
+Absolutely critical, and really there's no such thing as "too careful," if the available tools are used efficiently (though you could go miles deep/in circles in exception handling your exception handlers if you wrote them all yourself).  There are are at least three moving parts, the database, the driver, and the code.  Then within the code there's parsing out the SQL from the Java, nulls for each, and any other recoverable errors.
+
+http://www.tutorialspoint.com/jdbc/jdbc-exceptions.htm
+**.
+SAVE EVERYTHING*********************************************************************
+versioning in Sybase: 
+http://infocenter.sybase.com/archive/index.jsp?topic=/com.sybase.infocenter.dc00170.1260/html/iqapg/iqapg917.htm
+
+Lock granularity (how big of a chunk/what elements of the database exclude other changes while a change is happening)
+Different database products do different things by default, and also allow for different customizations. Know what these are from the product documentation.
+http://db.apache.org/derby/docs/10.10/tuning/ctunoptimz27975.html
+
+**.
+***CLOSE EVERYTHING********************************************************************
+
+Unlike the TutorialsPoint sample code, never initialize the connection variable to null, assign the actual value to it.  Close statements.  Use 'finally' block in your code for every close; it always executes, regardless of exception. Isolate each object in its own nested try/finally block. Whatever "it" is, if you don't put it away *right* when you're done using it, odds are it will get in your way, or someone might, um, assume it's theirs for the taking.
+I love this one:
+http://blog.shinetech.com/2007/08/04/how-to-close-jdbc-resources-properly-every-time/
+http://stackoverflow.com/questions/3075501/how-to-check-the-database-connection-leakage-in-java-ee-application
+
+Run a test query.  If it succeeds, your closure failed.
+
+I love this one:
+http://blog.shinetech.com/2007/08/04/how-to-close-jdbc-resources-properly-every-time/
+----------------------------------
+Connection connection = dataSource.getConnection();
+try {
+Statement statement = connection.createStatement();
+try {
+// Do stuff with the statement
+} finally {
+statement.close();
+}
+} finally {
+connection.close();
+}
+----------------------------------.
+
+A bit about connection pools (which vary per database product) and leaks:
+http://wiki.metawerx.net/wiki/DatabaseConnectionAndPoolingQuestions
+Passing the connection as a parameter:
+http://programmers.stackexchange.com/questions/187051/database-connection-should-they-be-passed-as-parameter
+
+**.
+***OTHER: Testability, Speed, resources, reliability, migration****************************************
+
+Often much of this depends on the database product being used.
+http://blog.jooq.org/2013/08/12/10-more-common-mistakes-java-developers-make-when-writing-sql/
+
+https://my.vertica.com/docs/7.0.x/HTML/Content/Authoring/ProgrammersGuide/ClientJDBC/EnablingNativeConnectionLoadBalancingInJDBC.htm
+http://stackoverflow.com/questions/4041205/database-connection-with-multithread-in-java
+http://sourceforge.net/projects/c3p0/
+http://db.apache.org/derby/docs/10.10/tuning/index.html
+but mostly:
+http://www.oracle.com/technetwork/java/seccodeguide-139067.html
